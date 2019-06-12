@@ -107,6 +107,8 @@ when not newsUseChronos:
       responce.add("Sec-WebSocket-Protocol: " & ws.protocol & "\c\L")
     responce.add "\c\L"
 
+    ws.transp = req.client
+    # await ws.transp.connect(uri.hostname, port)
     await ws.transp.send(responce)
     ws.readyState = Open
     return ws
@@ -115,11 +117,9 @@ proc newWebSocket*(url: string): Future[WebSocket] {.async.} =
   ## Creates a client
   var ws = WebSocket()
   let uri = parseUri(url)
-  var port = Port(9001)
+  var port = Port(80)
   if uri.scheme != "ws":
     raise newException(WebSocketError, &"Scheme {uri.scheme} not supported yet.")
-  else:
-    port = Port(80)
   if uri.port.len > 0:
     port = Port(parseInt(uri.port))
 

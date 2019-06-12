@@ -21,8 +21,7 @@ proc cb(req: Request) {.async.} =
       await ws.send(packet)
   await req.respond(Http200, "Hello World")
 
-asyncCheck server.serve(Port(9001), cb)
-runForever()
+waitFor server.serve(Port(9001), cb)
 ```
 
 ## Websocket client
@@ -37,8 +36,7 @@ proc sendMsg() {.async.} =
         let packet = await ws.receivePacket()
         echo "received ", packet
 
-asyncCheck sendMsg()
-runForever()
+waitFor sendMsg()
 ```
 
 ## Websocket with chronos support:
@@ -55,6 +53,5 @@ proc sendMsg() {.async.} =
         let packet = await ws.receivePacket()
         echo "received ", packet
 
-asyncCheck sendMsg()
-runForever()
+waitFor sendMsg()
 ```

@@ -2,6 +2,7 @@ import news, asyncdispatch, asynchttpserver
 
 var server = newAsyncHttpServer()
 proc cb(req: Request) {.async.} =
+  echo "cb ", req
   if req.url.path == "/ws":
     var ws = await newWebsocket(req)
     await ws.send("Welcome to simple echo server")
