@@ -58,8 +58,3 @@ proc sendMsg() {.async.} =
 asyncCheck sendMsg()
 runForever()
 ```
-
-SSL is also supported:
-```nim
-var ws = await newWebsocket("wss://echo.websocket.org")
-```
