@@ -1,4 +1,4 @@
-import strutils, streams, random, securehash, base64, uri, strformat, nativesockets
+import strutils, streams, random, securehash, base64, uri, strformat, nativesockets, oids, base64
 
 when not declaredInScope(newsUseChronos):
   # Currently chronos is second class citizen. To use this library in chronos-based
@@ -129,12 +129,13 @@ proc newWebSocket*(url: string): Future[WebSocket] {.async.} =
     ws.transp = newAsyncSocket()
     await ws.transp.connect(uri.hostname, port)
 
+  let secKey = encode($genOid())[16..^1]
   await ws.transp.send &"""GET {url} HTTP/1.1
 Host: {uri.hostname}:{$port}
 Connection: Upgrade
 Upgrade: websocket
 Sec-WebSocket-Version: 13
-Sec-WebSocket-Key: JCSoP2Cyk0cHZkKAit5DjA==
+Sec-WebSocket-Key: {secKey}
 Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits
 
 """
