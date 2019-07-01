@@ -1,4 +1,5 @@
-import strutils, streams, random, securehash, base64, uri, strformat, nativesockets, oids, base64
+import strutils, streams, random, base64, uri, strformat, nativesockets, oids,
+  strtabs
 
 when not declaredInScope(newsUseChronos):
   # Currently chronos is second class citizen. To use this library in chronos-based
@@ -113,7 +114,7 @@ when not newsUseChronos:
     ws.readyState = Open
     return ws
 
-proc newWebSocket*(url: string): Future[WebSocket] {.async.} =
+proc newWebSocket*(url: string, headers: StringTableRef = nil): Future[WebSocket] {.async.} =
   ## Creates a client
   var ws = WebSocket()
   let uri = parseUri(url)
@@ -130,20 +131,32 @@ proc newWebSocket*(url: string): Future[WebSocket] {.async.} =
     await ws.transp.connect(uri.hostname, port)
 
   let secKey = encode($genOid())[16..^1]
-  await ws.transp.send &"""GET {url} HTTP/1.1
+  var hello = &"""GET {url} HTTP/1.1
 Host: {uri.hostname}:{$port}
 Connection: Upgrade
 Upgrade: websocket
 Sec-WebSocket-Version: 13
 Sec-WebSocket-Key: {secKey}
 Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits
-
 """
+  if not headers.isNil:
+    for k, v in headers:
+      hello &= k
+      hello &= ": "
+      hello &= v
+      hello &= "\c\L"
+  hello &= "\c\L"
+
+  await ws.transp.send(hello)
+
   var output = ""
   while not output.endsWith("\c\L\c\L"):
     output.add await ws.transp.recv(1)
 
+  # TODO: Validate server reply
+
   ws.readyState = Open
+  ws.maskFrames = true
   return ws
 
 
