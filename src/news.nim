@@ -1,5 +1,5 @@
 import strutils, streams, random, base64, uri, strformat, nativesockets, oids,
-  strtabs
+  strtabs, std/sha1
 
 when not declaredInScope(newsUseChronos):
   # Currently chronos is second class citizen. To use this library in chronos-based
@@ -24,7 +24,7 @@ when newsUseChronos:
   proc isClosed*(transp: StreamTransport): bool {.inline.} = transp.closed
 
 else:
-  import httpcore, asyncdispatch, asyncnet, asynchttpserver
+  import httpcore, asyncdispatch, asyncnet, asynchttpserver, net
   type Transport = AsyncSocket
 
 
@@ -114,13 +114,24 @@ when not newsUseChronos:
     ws.readyState = Open
     return ws
 
-proc newWebSocket*(url: string, headers: StringTableRef = nil): Future[WebSocket] {.async.} =
+proc newWebSocket*(url: string, headers: StringTableRef = nil,
+                   protVersion: SslProtVersion = protSSLv23,
+                   verifyMode: SslCVerifyMode = CVerifyPeer): Future[WebSocket] {.async.} =
   ## Creates a client
   var ws = WebSocket()
-  let uri = parseUri(url)
+  var uri = parseUri(url)
   var port = Port(80)
-  if uri.scheme != "ws":
-    raise newException(WebSocketError, &"Scheme {uri.scheme} not supported yet.")
+  var useSsl = false
+  case uri.scheme
+    of "wss":
+      uri.scheme = "https"
+      port = Port(443)
+      useSsl = true
+    of "ws":
+      uri.scheme = "http"
+      port = Port(80)
+    else:
+      raise newException(WebSocketError, &"Scheme {uri.scheme} not supported yet.")
   if uri.port.len > 0:
     port = Port(parseInt(uri.port))
 
@@ -128,29 +139,40 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil): Future[WebSocket
     ws.transp = await connect(resolveTAddress(uri.hostname, port)[0])
   else:
     ws.transp = newAsyncSocket()
+    if useSsl:
+      let sslCtx = newContext(protVersion = protVersion, verifyMode = verifyMode)
+      if sslCtx.isNil:
+        raise newException(WebSocketError, "Unable to initialize SSL context")
+      wrapSocket(sslCtx, ws.transp)
     await ws.transp.connect(uri.hostname, port)
 
   let secKey = encode($genOid())[16..^1]
-  var hello = &"""GET {url} HTTP/1.1
-Host: {uri.hostname}:{$port}
-Connection: Upgrade
-Upgrade: websocket
-Sec-WebSocket-Version: 13
-Sec-WebSocket-Key: {secKey}
-Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits
-"""
+  let requestLine = &"GET {url} HTTP/1.1"
+  let predefinedHeaders = [
+    &"Host: {uri.hostname}:{$port}",
+    "Connection: Upgrade",
+    "Upgrade: websocket",
+    "Sec-WebSocket-Version: 13",
+    &"Sec-WebSocket-Key: {secKey}",
+    "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits"
+  ]
+  const CRLF = "\c\l"
+  var hello = requestLine & CRLF &
+              predefinedHeaders.join(CRLF) &
+              CRLF & CRLF
+
   if not headers.isNil:
     for k, v in headers:
       hello &= k
       hello &= ": "
       hello &= v
-      hello &= "\c\L"
-  hello &= "\c\L"
+      hello &= CRLF
+  hello &= CRLF
 
   await ws.transp.send(hello)
 
   var output = ""
-  while not output.endsWith("\c\L\c\L"):
+  while not output.endsWith(CRLF & CRLF):
     output.add await ws.transp.recv(1)
 
   # TODO: Validate server reply

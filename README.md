@@ -55,3 +55,10 @@ proc sendMsg() {.async.} =
 
 waitFor sendMsg()
 ```
+
+## SSL/TLS connection is configured with a different prefix:
+*Note: not supported for chronos variant*
+```nim
+var ws = await newWebSocket("wss://localhost/",
+                            protVersion = protTLSv1, verifyMode = CVerifyNone) # optional arguments
+```
