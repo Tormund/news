@@ -156,17 +156,17 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
     "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits"
   ]
   const CRLF = "\c\l"
-  var hello = requestLine & CRLF &
-              predefinedHeaders.join(CRLF) &
-              static(CRLF & CRLF)
-
+  var customHeaders = ""
   if not headers.isNil:
     for k, v in headers:
-      hello &= k
-      hello &= ": "
-      hello &= v
-      hello &= CRLF
-  hello &= CRLF
+      customHeaders &= k
+      customHeaders &= ": "
+      customHeaders &= v
+      customHeaders &= CRLF
+  var hello = requestLine & CRLF &
+              customHeaders &
+              predefinedHeaders.join(CRLF) &
+              static(CRLF & CRLF)
 
   await ws.transp.send(hello)
 
