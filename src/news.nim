@@ -37,6 +37,7 @@ type
 
   WebSocket* = ref object
     transp*: Transport
+    sslCtx*: SslContext
     version*: int
     key*: string
     protocol*: string
@@ -119,17 +120,15 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
                    verifyMode: SslCVerifyMode = CVerifyPeer): Future[WebSocket] {.async.} =
   ## Creates a client
   var ws = WebSocket()
-  var uri = parseUri(url)
+  let uri = parseUri(url)
   var port = Port(80)
   var useSsl = false
   case uri.scheme
     of "wss":
-      uri.scheme = "https"
       port = Port(443)
       useSsl = true
     of "ws":
-      uri.scheme = "http"
-      port = Port(80)
+      discard
     else:
       raise newException(WebSocketError, &"Scheme {uri.scheme} not supported yet.")
   if uri.port.len > 0:
@@ -140,10 +139,10 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
   else:
     ws.transp = newAsyncSocket()
     if useSsl:
-      let sslCtx = newContext(protVersion = protVersion, verifyMode = verifyMode)
-      if sslCtx.isNil:
+      ws.sslCtx = newContext(protVersion = protVersion, verifyMode = verifyMode)
+      if ws.sslCtx.isNil:
         raise newException(WebSocketError, "Unable to initialize SSL context")
-      wrapSocket(sslCtx, ws.transp)
+      wrapSocket(ws.sslCtx, ws.transp)
     await ws.transp.connect(uri.hostname, port)
 
   let secKey = encode($genOid())[16..^1]
@@ -159,7 +158,7 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
   const CRLF = "\c\l"
   var hello = requestLine & CRLF &
               predefinedHeaders.join(CRLF) &
-              CRLF & CRLF
+              static(CRLF & CRLF)
 
   if not headers.isNil:
     for k, v in headers:
@@ -172,7 +171,7 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
   await ws.transp.send(hello)
 
   var output = ""
-  while not output.endsWith(CRLF & CRLF):
+  while not output.endsWith(static(CRLF & CRLF)):
     output.add await ws.transp.recv(1)
 
   # TODO: Validate server reply
@@ -412,3 +411,4 @@ proc close*(ws: WebSocket) =
   ## close the socket
   ws.readyState = Closed
   ws.transp.close()
+  ws.sslCtx.destroyContext()
