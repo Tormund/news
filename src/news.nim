@@ -167,10 +167,7 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
   var customHeaders = ""
   if not headers.isNil:
     for k, v in headers:
-      customHeaders &= k
-      customHeaders &= ": "
-      customHeaders &= v
-      customHeaders &= CRLF
+      customHeaders &= &"{k}: {v}{CRLF}"
   var hello = requestLine & CRLF &
               customHeaders &
               predefinedHeaders.join(CRLF) &
