@@ -1,5 +1,5 @@
 import strutils, streams, random, base64, uri, strformat, nativesockets, oids,
-  strtabs, std/sha1
+  strtabs, std/sha1, net
 
 when not declaredInScope(newsUseChronos):
   # Currently chronos is second class citizen. To use this library in chronos-based
@@ -24,7 +24,7 @@ when newsUseChronos:
   proc isClosed*(transp: StreamTransport): bool {.inline.} = transp.closed
 
 else:
-  import httpcore, asyncdispatch, asyncnet, asynchttpserver, net
+  import httpcore, asyncdispatch, asyncnet, asynchttpserver
   type Transport = AsyncSocket
 
 
@@ -37,7 +37,6 @@ type
 
   WebSocket* = ref object
     transp*: Transport
-    sslCtx*: SslContext
     version*: int
     key*: string
     protocol*: string
