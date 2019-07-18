@@ -93,12 +93,12 @@ when not defined(ssl):
 var defaultSslContext {.threadvar.}: SSLContext
 
 proc getDefaultSslContext(): SSLContext =
-  result = defaultSslContext
   when defined(ssl):
-    if result == nil:
+    if defaultSslContext.isNil:
       defaultSslContext = newContext(protVersion = protTLSv1, verifyMode = CVerifyNone)
-      result = defaultSSLContext
-      doAssert result != nil, "Unable to initialize SSL context"
+      if defaultSslContext.isNil:
+          raise newException(WebSocketError, "Unable to initialize SSL context.")
+  result = defaultSslContext
 
 when not newsUseChronos:
   proc newWebSocket*(req: Request): Future[WebSocket] {.async.} =
