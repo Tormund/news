@@ -89,6 +89,18 @@ proc genMaskKey*(): array[4, char] =
   ## Generates a random key of 4 random chars
   [char(rand(255)), char(rand(255)), char(rand(255)), char(rand(255))]
 
+when not defined(ssl):
+  type SSLContext = ref object
+var defaultSslContext {.threadvar.}: SSLContext
+
+proc getDefaultSslContext(): SSLContext =
+  result = defaultSslContext
+  when defined(ssl):
+    if result == nil:
+      defaultSslContext = newContext(protVersion = protTLSv1, verifyMode = CVerifyNone)
+      result = defaultSSLContext
+      doAssert result != nil, "Unable to initialize SSL context"
+
 when not newsUseChronos:
   proc newWebSocket*(req: Request): Future[WebSocket] {.async.} =
     ## Creates a new socket from a request
@@ -116,17 +128,14 @@ when not newsUseChronos:
     return ws
 
 proc newWebSocket*(url: string, headers: StringTableRef = nil,
-                   protVersion: SslProtVersion = protSSLv23,
-                   verifyMode: SslCVerifyMode = CVerifyPeer): Future[WebSocket] {.async.} =
+                   sslContext: SSLContext = getDefaultSslContext()): Future[WebSocket] {.async.} =
   ## Creates a client
   var ws = WebSocket()
   let uri = parseUri(url)
   var port = Port(80)
-  var useSsl = false
   case uri.scheme
     of "wss":
       port = Port(443)
-      useSsl = true
     of "ws":
       discard
     else:
@@ -138,11 +147,11 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
     ws.transp = await connect(resolveTAddress(uri.hostname, port)[0])
   else:
     ws.transp = newAsyncSocket()
-    if useSsl:
-      ws.sslCtx = newContext(protVersion = protVersion, verifyMode = verifyMode)
-      if ws.sslCtx.isNil:
-        raise newException(WebSocketError, "Unable to initialize SSL context")
-      wrapSocket(ws.sslCtx, ws.transp)
+    if uri.scheme == "wss":
+      when defined(ssl):
+        sslContext.wrapSocket(ws.transp)
+      else:
+        raise newException(WebSocketError, "SSL support is not available. Compile with -d:ssl to enable.")
     await ws.transp.connect(uri.hostname, port)
 
   let secKey = encode($genOid())[16..^1]
@@ -411,4 +420,3 @@ proc close*(ws: WebSocket) =
   ## close the socket
   ws.readyState = Closed
   ws.transp.close()
-  ws.sslCtx.destroyContext()
