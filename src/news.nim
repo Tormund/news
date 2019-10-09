@@ -9,19 +9,28 @@ when not declaredInScope(newsUseChronos):
   const newsUseChronos = false
 
 when newsUseChronos:
-  import chronos, httpcore
-  type Transport = StreamTransport
+  import chronos, chronos/streams/[asyncstream, tlsstream], httpcore
+  type Transport = object
+    reader: AsyncStreamReader
+    writer: AsyncStreamWriter
 
-  proc send(s: StreamTransport, data: string) {.async.} =
-    discard await s.write(data)
+  proc send(s: Transport, data: string) {.async.} =
+    # echo "sending: ", data.len
+    await s.writer.write(data)
 
-  proc recv(s: StreamTransport, len: int): Future[string] {.async.} =
+  proc recv(s: Transport, len: int): Future[string] {.async.} =
     var res = newString(len)
     if len != 0:
-      await s.readExactly(addr res[0], len)
+      # echo "receiving: ", len
+      await s.reader.readExactly(addr res[0], len)
     return res
 
-  proc isClosed*(transp: StreamTransport): bool {.inline.} = transp.closed
+  proc isClosed(transp: Transport): bool {.inline.} =
+    transp.reader.closed or transp.writer.closed
+
+  proc close(transp: Transport) =
+    transp.reader.close()
+    transp.writer.close()
 
 else:
   import httpcore, asyncdispatch, asyncnet, asynchttpserver
@@ -143,7 +152,15 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
     port = Port(parseInt(uri.port))
 
   when newsUseChronos:
-    ws.transp = await connect(resolveTAddress(uri.hostname, port)[0])
+    let tr = await connect(resolveTAddress(uri.hostname, port)[0])
+    ws.transp.reader = newAsyncStreamReader(tr)
+    ws.transp.writer = newAsyncStreamWriter(tr)
+
+    if uri.scheme == "wss":
+      let s = newTlsClientAsyncStream(ws.transp.reader, ws.transp.writer, serverName = uri.hostName)
+      ws.transp.reader = s.reader
+      ws.transp.writer = s.writer
+
   else:
     ws.transp = newAsyncSocket()
     if uri.scheme == "wss":
@@ -160,8 +177,7 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
     "Connection: Upgrade",
     "Upgrade: websocket",
     "Sec-WebSocket-Version: 13",
-    &"Sec-WebSocket-Key: {secKey}",
-    "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits"
+    &"Sec-WebSocket-Key: {secKey}"
   ]
   const CRLF = "\c\l"
   var customHeaders = ""
