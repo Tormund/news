@@ -44,12 +44,17 @@ type
     Closing = 2 # The connection is in the process of closing.
     Closed = 3 # The connection is closed or couldn't be opened.
 
+  ConnectionState = enum
+    Fresh # a packet has been observed recently 
+    Stale # no packets have been received since last ping
+
   WebSocket* = ref object
     transp*: Transport
     version*: int
     key*: string
     protocol*: string
     readyState*: ReadyState
+    connectionState: ConnectionState
     maskFrames*: bool
 
   WebSocketError* = object of Exception
@@ -399,11 +404,20 @@ proc recvFrame(ws: WebSocket): Future[Frame] {.async.} =
     for i in 0 ..< result.data.len:
       result.data[i] = (result.data[i].uint8 xor maskKey[i mod 4].uint8).char
 
+  ws.connectionState = Fresh
+
 proc sendPing*(ws: WebSocket): Future[void] {.async.} =
   await ws.send("", Opcode.Ping)
+  ws.connectionState = Stale
 
 proc sendPong(ws: WebSocket): Future[void] {.async.} =
   await ws.send("", Opcode.Pong)
+
+proc isFresh*(ws: WebSocket): bool =
+  result = (ws.connectionState == Fresh)
+
+proc isStale*(ws: WebSocket): bool =
+  result = (ws.connectionState == Stale)
 
 proc receivePacket*(ws: WebSocket): Future[string] {.async.} =
   ## wait for a string packet to come
@@ -422,7 +436,7 @@ proc receivePacket*(ws: WebSocket): Future[string] {.async.} =
     await ws.sendPong()
 
   elif frame.opcode == Pong:
-    discard
+    ws.connectionState = Fresh
 
   elif frame.opcode == Close:
     raise newException(WebSocketClosedError, "Socket closed")
