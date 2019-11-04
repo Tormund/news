@@ -311,26 +311,33 @@ proc encodeFrame*(f: Frame): string =
 
 
 proc send*(ws: WebSocket, text: string, opcode = Opcode.Text): Future[void] {.async.} =
-  ## write data to WebSocket
-  var frame = encodeFrame((
-    fin: true,
-    rsv1: false,
-    rsv2: false,
-    rsv3: false,
-    opcode: opcode,
-    mask: ws.maskFrames,
-    data: text
-  ))
-  const maxSize = 1024*1024
-  # send stuff in 1 megabyte chunks to prevent IOErrors
-  # with really large packets
-  var i = 0
-  while i < frame.len:
-    let data = frame[i ..< min(frame.len, i + maxSize)]
-    await ws.transp.send(data)
-    i += maxSize
-    await sleepAsync(1)
-
+  try:
+    ## write data to WebSocket
+    var frame = encodeFrame((
+      fin: true,
+      rsv1: false,
+      rsv2: false,
+      rsv3: false,
+      opcode: opcode,
+      mask: ws.maskFrames,
+      data: text
+    ))
+    const maxSize = 1024*1024
+    # send stuff in 1 megabyte chunks to prevent IOErrors
+    # with really large packets
+    var i = 0
+    while i < frame.len:
+      let data = frame[i ..< min(frame.len, i + maxSize)]
+      await ws.transp.send(data)
+      i += maxSize
+      await sleepAsync(1)
+  except Exception as e:
+    if ws.transp.isClosed:
+      ws.readyState = Closed
+      raise newException(WebSocketClosedError, "Socket closed")
+    else:
+      raise newException(WebSocketError,
+                          "Could not receive packet because of [" & $e.name & "]: " & $e.msg)
 
 proc recvFrame(ws: WebSocket): Future[Frame] {.async.} =
   ## Gets a frame from the WebSocket
@@ -420,26 +427,36 @@ proc isStale*(ws: WebSocket): bool =
   result = (ws.connectionState == Stale)
 
 proc receivePacket*(ws: WebSocket): Future[string] {.async.} =
-  ## wait for a string packet to come
-  var frame = await ws.recvFrame()
-  if frame.opcode == Text or frame.opcode == Binary:
-    result = frame.data
-    # If there are more parits read and wait for them
-    while frame.fin != true:
-      frame = await ws.recvFrame()
-      if frame.opcode != Cont:
-        raise newException(WebSocketError, "Socket did not get continue frame")
-      result.add frame.data
-    return
+  try:
+    ## wait for a string packet to come
+    var frame = await ws.recvFrame()
+    if frame.opcode == Text or frame.opcode == Binary:
+      result = frame.data
+      # If there are more parits read and wait for them
+      while frame.fin != true:
+        frame = await ws.recvFrame()
+        if frame.opcode != Cont:
+          raise newException(WebSocketError, "Socket did not get continue frame")
+        result.add frame.data
+      return
 
-  if frame.opcode == Ping:
-    await ws.sendPong()
+    if frame.opcode == Ping:
+      await ws.sendPong()
 
-  elif frame.opcode == Pong:
-    ws.connectionState = Fresh
+    elif frame.opcode == Pong:
+      ws.connectionState = Fresh
 
-  elif frame.opcode == Close:
-    raise newException(WebSocketClosedError, "Socket closed")
+    elif frame.opcode == Close:
+      raise newException(WebSocketClosedError, "Socket closed")
+  except WebSocketError as e:
+    raise e
+  except Exception as e:
+    if ws.transp.isClosed:
+      ws.readyState = Closed
+      raise newException(WebSocketClosedError, "Socket closed")
+    else:
+      raise newException(WebSocketError,
+                         "Could not receive packet because of [" & $e.name & "]: " & $e.msg)
 
 
 proc close*(ws: WebSocket) =
