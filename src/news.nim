@@ -462,4 +462,5 @@ proc receivePacket*(ws: WebSocket): Future[string] {.async.} =
 proc close*(ws: WebSocket) =
   ## close the socket
   ws.readyState = Closed
-  ws.transp.close()
+  if not ws.transp.isClosed:
+    ws.transp.close()
