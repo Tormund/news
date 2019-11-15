@@ -49,7 +49,7 @@ type
     maxMissedReplies: uint
     isWaitingForPacket: bool
     missedReplies: uint
-    callback: proc() {.gcsafe.}
+    callback: proc()
 
   WebSocket* = ref object
     transp*: Transport
@@ -211,7 +211,7 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
 
 proc setupPingTimer(ws: WebSocket)
 
-proc setupAutoClose(ws: WebSocket, onAutoClose: proc() {.gcsafe.}) =
+proc setupAutoClose(ws: WebSocket, onAutoClose: proc()) =
   if ws.autoCloseConfiguration.isNil:
     ws.autoCloseConfiguration.new()
     ws.autoCloseConfiguration.pingInterval = 5000
@@ -221,10 +221,10 @@ proc setupAutoClose(ws: WebSocket, onAutoClose: proc() {.gcsafe.}) =
   ws.autoCloseConfiguration.callback = onAutoClose
   ws.setupPingTimer()
 
-proc enableAutoClose*(ws: WebSocket, onAutoClose: proc() {.gcsafe.}) =
+proc enableAutoClose*(ws: WebSocket, onAutoClose: proc()) =
   ws.setupAutoClose(onAutoClose)
 
-proc enableAutoCloseWithParameters*(ws: WebSocket, onAutoClose: proc() {.gcsafe.},
+proc enableAutoCloseWithParameters*(ws: WebSocket, onAutoClose: proc(),
                                     pingInterval, maxMissedReplies: uint) =
   ws.autoCloseConfiguration.new()
   ws.autoCloseConfiguration.pingInterval = pingInterval
@@ -481,9 +481,10 @@ proc setupPingTimer(ws: WebSocket) =
         waitFor ws.sendPing()
       except WebSocketError:
         # let the timer to be destroyed and trigger callback after that
-        callSoon do():
+        proc triggerCallback() {.async.} =
           if ws.isAutoCloseEnabled():
             ws.autoCloseConfiguration.callback()
+        asyncCheck triggerCallback()
       finally:
         # timer is destroyed once result becomes false
         result = (ws.readyState == Closing) or (ws.readyState == Closed) or
