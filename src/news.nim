@@ -44,13 +44,6 @@ type
     Closing = 2 # The connection is in the process of closing.
     Closed = 3 # The connection is closed or couldn't be opened.
 
-  AutoCloseConfiguration = ref object
-    pingInterval: uint
-    maxMissedReplies: uint
-    isWaitingForPacket: bool
-    missedReplies: uint
-    callback: proc()
-
   WebSocket* = ref object
     transp*: Transport
     version*: int
@@ -58,7 +51,6 @@ type
     protocol*: string
     readyState*: ReadyState
     maskFrames*: bool
-    autoCloseConfiguration: AutoCloseConfiguration
 
   WebSocketError* = object of Exception
   WebSocketClosedError* = object of WebSocketError
@@ -209,34 +201,6 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
   ws.maskFrames = true
   return ws
 
-proc setupPingTimer(ws: WebSocket)
-
-proc setupAutoClose(ws: WebSocket, onAutoClose: proc()) =
-  if ws.autoCloseConfiguration.isNil:
-    ws.autoCloseConfiguration.new()
-    ws.autoCloseConfiguration.pingInterval = 5000
-    ws.autoCloseConfiguration.maxMissedReplies = 5
-  ws.autoCloseConfiguration.isWaitingForPacket = false
-  ws.autoCloseConfiguration.missedReplies = 0
-  ws.autoCloseConfiguration.callback = onAutoClose
-  ws.setupPingTimer()
-
-proc enableAutoClose*(ws: WebSocket, onAutoClose: proc()) =
-  ws.setupAutoClose(onAutoClose)
-
-proc enableAutoCloseWithParameters*(ws: WebSocket, onAutoClose: proc(),
-                                    pingInterval, maxMissedReplies: uint) =
-  ws.autoCloseConfiguration.new()
-  ws.autoCloseConfiguration.pingInterval = pingInterval
-  ws.autoCloseConfiguration.maxMissedReplies = maxMissedReplies
-  ws.setupAutoClose(onAutoClose)
-
-proc disableAutoClose*(ws: WebSocket) =
-  ws.autoCloseConfiguration = nil
-  # ping timer will be destroyed automatically (see setupPingTimer)
-
-proc isAutoCloseEnabled*(ws: WebSocket): bool =
-  not ws.autoCloseConfiguration.isNil
 
 type
   Opcode* = enum
@@ -340,12 +304,6 @@ proc encodeFrame*(f: Frame): string =
   return ret.readAll()
 
 
-proc close*(ws: WebSocket)
-
-proc shouldBeAutoClosed(ws: WebSocket): bool =
-  result = ws.isAutoCloseEnabled() and
-    (ws.autoCloseConfiguration.missedReplies > ws.autoCloseConfiguration.maxMissedReplies)
-
 proc send*(ws: WebSocket, text: string, opcode = Opcode.Text): Future[void] {.async.} =
   try:
     ## write data to WebSocket
@@ -374,12 +332,6 @@ proc send*(ws: WebSocket, text: string, opcode = Opcode.Text): Future[void] {.as
     else:
       raise newException(WebSocketError,
                          &"Could not send packet because of [{e.name}]: {e.msg}")
-
-  if ws.shouldBeAutoClosed():
-    ws.close()
-    let effectiveTimeout = ws.autoCloseConfiguration.pingInterval * (ws.autoCloseConfiguration.maxMissedReplies + 1)
-    raise newException(WebSocketClosedError,
-                       &"Socket auto-closed after timeout of {effectiveTimeout} ms")
 
 proc recvFrame(ws: WebSocket): Future[Frame] {.async.} =
   ## Gets a frame from the WebSocket
@@ -458,43 +410,14 @@ proc recvFrame(ws: WebSocket): Future[Frame] {.async.} =
 
 proc sendPing*(ws: WebSocket): Future[void] {.async.} =
   await ws.send("", Opcode.Ping)
-  if ws.isAutoCloseEnabled():
-    ws.autoCloseConfiguration.isWaitingForPacket = true
 
 proc sendPong(ws: WebSocket): Future[void] {.async.} =
   await ws.send("", Opcode.Pong)
-
-proc registerPacketReceived(ws: WebSocket) =
-  if ws.isAutoCloseEnabled():
-    ws.autoCloseConfiguration.missedReplies = 0
-    ws.autoCloseConfiguration.isWaitingForPacket = false
-
-proc checkIfPongMissed(ws: WebSocket) =
-  if ws.isAutoCloseEnabled() and ws.autoCloseConfiguration.isWaitingForPacket:
-    inc ws.autoCloseConfiguration.missedReplies
-
-proc setupPingTimer(ws: WebSocket) =
-  addTimer(int(ws.autoCloseConfiguration.pingInterval), false) do(unused: AsyncFD) -> bool:
-    {.gcsafe.}:
-      ws.checkIfPongMissed() # ping from previous timer trigger event is checked
-      try:
-        waitFor ws.sendPing()
-      except WebSocketError:
-        # let the timer to be destroyed and trigger callback after that
-        proc triggerCallback() {.async.} =
-          if ws.isAutoCloseEnabled():
-            ws.autoCloseConfiguration.callback()
-        asyncCheck triggerCallback()
-      finally:
-        # timer is destroyed once result becomes false
-        result = (ws.readyState == Closing) or (ws.readyState == Closed) or
-                  not ws.isAutoCloseEnabled()
 
 proc receivePacket*(ws: WebSocket): Future[string] {.async.} =
   try:
     ## wait for a string packet to come
     var frame = await ws.recvFrame()
-    ws.registerPacketReceived()
     if frame.opcode == Text or frame.opcode == Binary:
       result = frame.data
       # If there are more parts read and wait for them
@@ -522,12 +445,6 @@ proc receivePacket*(ws: WebSocket): Future[string] {.async.} =
     else:
       raise newException(WebSocketError,
                          &"Could not receive packet because of [{e.name}]: {e.msg}")
-  
-  if ws.shouldBeAutoClosed():
-    ws.close()
-    let effectiveTimeout = ws.autoCloseConfiguration.pingInterval * (ws.autoCloseConfiguration.maxMissedReplies + 1)
-    raise newException(WebSocketClosedError,
-                       &"Socket auto-closed after timeout of {effectiveTimeout} ms")
 
 proc close*(ws: WebSocket) =
   ## close the socket
