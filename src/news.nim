@@ -339,6 +339,10 @@ proc send*(ws: WebSocket, text: string, opcode = Opcode.Text): Future[void] {.as
       raise newException(WebSocketError,
                          &"Could not send packet because of [{e.name}]: {e.msg}")
 
+proc send*(ws: WebSocket, packet: Packet): Future[void] {.async.} =
+  let data = if packet.kind == Text or packet.kind == Binary: packet.data else: ""
+  result = ws.send(data, packet.kind)
+
 proc recvFrame(ws: WebSocket): Future[Frame] {.async.} =
   ## Gets a frame from the WebSocket
   ## See https://tools.ietf.org/html/rfc6455#section-5.2
@@ -452,6 +456,13 @@ proc receivePacket*(ws: WebSocket): Future[Packet] {.async.} =
     else:
       raise newException(WebSocketError,
                          &"Could not receive packet because of [{e.name}]: {e.msg}")
+
+proc receiveString*(ws: WebSocket): Future[string] {.async.} =
+  let packet = await ws.receivePacket()
+  if packet.kind == Text or packet.kind == Binary:
+    result = packet.data
+  else:
+    raise newException(WebSocketError, &"Expected string, but got {packet.kind}")
 
 proc close*(ws: WebSocket) =
   ## close the socket

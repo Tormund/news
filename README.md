@@ -33,7 +33,7 @@ proc sendMsg() {.async.} =
     var ws = await newWebSocket("ws://localhost:9001/ws")
     await ws.send("hi")
     while ws.readyState == Open:
-        let packet = await ws.receivePacket()
+        let packet = await ws.receiveString()
         echo "received ", packet
 
 waitFor sendMsg()
@@ -50,7 +50,7 @@ proc sendMsg() {.async.} =
     var ws = await newWebSocket("ws://localhost:9001/ws")
     await ws.send("hi")
     while ws.readyState == Open:
-        let packet = await ws.receivePacket()
+        let packet = await ws.receiveString()
         echo "received ", packet
 
 waitFor sendMsg()
