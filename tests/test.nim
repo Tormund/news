@@ -17,8 +17,8 @@ proc sendMsg() {.async.} =
     var ws = await newWebSocket("ws://localhost:9001/ws")
     await ws.send("hi")
     while ws.readyState == Open:
-        let packet = await ws.receivePacket()
-        echo "received ", packet
+        let str = await ws.receiveString()
+        echo "received ", str
 
 asyncCheck sendMsg()
 runForever()
