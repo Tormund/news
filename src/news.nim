@@ -243,6 +243,12 @@ type
     mask: bool ## Defines whether the "Payload data" is masked.
     data: string ## Payload data
 
+  Packet* = object
+    case kind*: Opcode
+    of Text, Binary:
+      data*: string
+    else:
+      discard
 
 proc encodeFrame*(f: Frame): string =
   ## Encodes a frame into a string buffer
@@ -414,25 +420,26 @@ proc sendPing*(ws: WebSocket): Future[void] {.async.} =
 proc sendPong(ws: WebSocket): Future[void] {.async.} =
   await ws.send("", Opcode.Pong)
 
-proc receivePacket*(ws: WebSocket): Future[string] {.async.} =
+proc receivePacket*(ws: WebSocket): Future[Packet] {.async.} =
   try:
     ## wait for a string packet to come
     var frame = await ws.recvFrame()
+    result = Packet(kind: frame.opcode)
     if frame.opcode == Text or frame.opcode == Binary:
-      result = frame.data
+      result.data = frame.data
       # If there are more parts read and wait for them
       while frame.fin != true:
         frame = await ws.recvFrame()
         if frame.opcode != Cont:
           raise newException(WebSocketError, "Socket did not get continue frame")
-        result.add frame.data
+        result.data.add frame.data
       return
 
     if frame.opcode == Ping:
       await ws.sendPong()
 
     elif frame.opcode == Pong:
-      discard
+      return
 
     elif frame.opcode == Close:
       raise newException(WebSocketClosedError, "Socket closed")

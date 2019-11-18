@@ -8,7 +8,7 @@ proc cb(req: Request) {.async.} =
     await ws.send("Welcome to simple echo server")
     while ws.readyState == Open:
       let packet = await ws.receivePacket()
-      await ws.send(packet)
+      await ws.send(packet.data)
   await req.respond(Http200, "Hello World")
 
 asyncCheck server.serve(Port(9001), cb)
@@ -18,7 +18,7 @@ proc sendMsg() {.async.} =
     await ws.send("hi")
     while ws.readyState == Open:
         let packet = await ws.receivePacket()
-        echo "received ", packet
+        echo "received ", packet.data
 
 asyncCheck sendMsg()
 runForever()
