@@ -201,6 +201,12 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
   ws.maskFrames = true
   return ws
 
+proc close*(ws: WebSocket) =
+  ## close the socket
+  ws.readyState = Closed
+  if not ws.transp.isClosed:
+    ws.transp.close()
+
 
 type
   Opcode* = enum
@@ -448,26 +454,27 @@ proc receivePacket*(ws: WebSocket): Future[Packet] {.async.} =
       return
 
     elif frame.opcode == Close:
-      raise newException(WebSocketClosedError, "Socket closed")
+      ws.close()
+
   except WebSocketError as e:
     raise e
   except Exception as e:
     if ws.transp.isClosed:
       ws.readyState = Closed
-      raise newException(WebSocketClosedError, "Socket closed")
+      result = Packet(kind: Close)
     else:
       raise newException(WebSocketError,
                          &"Could not receive packet because of [{e.name}]: {e.msg}")
 
 proc receiveString*(ws: WebSocket): Future[string] {.async.} =
-  let packet = await ws.receivePacket()
-  if packet.kind == Text or packet.kind == Binary:
-    result = packet.data
-  else:
-    raise newException(WebSocketError, &"Expected string, but got {packet.kind}")
-
-proc close*(ws: WebSocket) =
-  ## close the socket
-  ws.readyState = Closed
-  if not ws.transp.isClosed:
-    ws.transp.close()
+  var receivedString = false
+  while not (receivedString or ws.readyState == Closed):
+    let packet = await ws.receivePacket()
+    case packet.kind
+    of Text, Binary:
+      receivedString = true
+      result = packet.data
+    of Close:
+      result = ""
+    else:
+      discard
