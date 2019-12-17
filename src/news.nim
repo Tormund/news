@@ -137,7 +137,7 @@ when not newsUseChronos:
     ws.readyState = Open
     return ws
 
-proc validateServerResponce(resp, secKey: string): string =
+proc validateServerResponse(resp, secKey: string): string =
   block statusCode:
     const k = "HTTP/1.1 "
     let i = resp.find(k) + k.len
@@ -231,11 +231,9 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
   while not output.endsWith(static(CRLF & CRLF)):
     output.add await ws.transp.recv(1)
 
-  let error = validateServerResponce(output, secKey)
+  let error = validateServerResponse(output, secKey)
   if error.len > 0:
     raise newException(WebSocketError, "WebSocket connection error: " & error)
-
-  # TODO: Validate server reply
 
   ws.readyState = Open
   ws.maskFrames = true
