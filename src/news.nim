@@ -138,16 +138,17 @@ when not newsUseChronos:
     return ws
 
 proc validateServerResponse(resp, secKey: string): string =
+  let respLines = resp.splitLines()
   block statusCode:
     const k = "HTTP/1.1 "
-    let i = resp.find(k) + k.len
-    let v = resp[i .. i + 2]
+    let i = respLines[0].find(k) + k.len
+    let v = respLines[0][i .. i + 2]
     if v != "101":
-      return resp[i .. resp.find('\n', i)]
+      return respLines[0][i ..< respLines[0].len]
 
   var validatedHeaders: array[3, bool]
-  for l in resp.splitLines()[1 .. ^1]:
-    let h = parseHeader(l)
+  for i in 1 ..< respLines.len:
+    let h = parseHeader(respLines[i])
     if h.key == "Upgrade":
       if h.value[0].toLowerAscii != "websocket":
         return "Upgrade header is invalid"
@@ -204,8 +205,8 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
     await ws.transp.connect(uri.hostname, port)
 
   var urlPath = uri.path
-  # if uri.query.len > 0:
-  #   urlPath.add("?" & uri.query)
+  if uri.query.len > 0:
+    urlPath.add("?" & uri.query)
 
   let secKey = encode($genOid())[16..^1]
   let requestLine = &"GET {urlPath} HTTP/1.1"
