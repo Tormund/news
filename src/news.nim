@@ -1,5 +1,5 @@
 import strutils, streams, random, base64, uri, strformat, nativesockets, oids,
-  strtabs, std/sha1, net
+  strtabs, std/sha1, net, httpcore
 
 when not declaredInScope(newsUseChronos):
   # Currently chronos is second class citizen. To use this library in chronos-based
@@ -9,7 +9,7 @@ when not declaredInScope(newsUseChronos):
   const newsUseChronos = false
 
 when newsUseChronos:
-  import chronos, chronos/streams/[asyncstream, tlsstream], httpcore
+  import chronos, chronos/streams/[asyncstream, tlsstream]
   type Transport = object
     reader: AsyncStreamReader
     writer: AsyncStreamWriter
@@ -123,17 +123,17 @@ when not newsUseChronos:
     let sh = secureHash(ws.key & GUID)
     let acceptKey = base64.encode(decodeBase16($sh))
 
-    var responce = "HTTP/1.1 101 Web Socket Protocol Handshake" & CRLF
-    responce.add("Sec-WebSocket-Accept: " & acceptKey & CRLF)
-    responce.add("Connection: Upgrade" & CRLF)
-    responce.add("Upgrade: webSocket" & CRLF)
+    var response = "HTTP/1.1 101 Web Socket Protocol Handshake" & CRLF
+    response.add("Sec-WebSocket-Accept: " & acceptKey & CRLF)
+    response.add("Connection: Upgrade" & CRLF)
+    response.add("Upgrade: webSocket" & CRLF)
     if not ws.protocol.len == 0:
-      responce.add("Sec-WebSocket-Protocol: " & ws.protocol & CRLF)
-    responce.add CRLF
+      response.add("Sec-WebSocket-Protocol: " & ws.protocol & CRLF)
+    response.add CRLF
 
     ws.transp = req.client
     # await ws.transp.connect(uri.hostname, port)
-    await ws.transp.send(responce)
+    await ws.transp.send(response)
     ws.readyState = Open
     return ws
 
@@ -145,27 +145,28 @@ proc validateServerResponse(resp, secKey: string): string =
     if v != "101":
       return resp[i .. resp.find('\n', i)]
 
-  block upgrade:
-    const k = "Upgrade: "
-    let i = resp.find(k) + k.len
-    let v = resp[i .. i + 8]
-    if v.toLowerAscii != "websocket":
-      return "Upgrade header is invalid"
+  var validatedHeaders: array[3, bool]
+  for l in resp.splitLines()[1 .. ^1]:
+    let h = parseHeader(l)
+    if h.key == "Upgrade":
+      if h.value[0].toLowerAscii != "websocket":
+        return "Upgrade header is invalid"
+      validatedHeaders[0] = true
 
-  block connection:
-    const k = "Connection: "
-    let i = resp.find(k) + k.len
-    let v = resp[i .. i + 6]
-    if v.toLowerAscii != "upgrade":
-      return "Connection header is invalid"
+    elif h.key == "Connection":
+      if h.value[0].toLowerAscii != "upgrade":
+        return "Connection header is invalid"
+      validatedHeaders[1] = true
 
-  block wsaccept:
-    const k = "Sec-WebSocket-Accept: "
-    let i = resp.find(k) + k.len
-    let v = resp[i .. resp.find(CRLF, i) - 1]
-    let sh = decodeBase16($secureHash(secKey & GUID))
-    if v.toLowerAscii != base64.encode(sh).toLowerAscii:
-      return "Secret key invalid"
+    elif h.key == "Sec-WebSocket-Accept":
+      let sh = decodeBase16($secureHash(secKey & GUID))
+      if h.value[0].toLowerAscii != base64.encode(sh).toLowerAscii:
+        return "Secret key invalid"
+      validatedHeaders[2] = true
+
+  if not validatedHeaders[0]: return "Missing Upgrade header"
+  if not validatedHeaders[1]: return "Missing Connection header"
+  if not validatedHeaders[2]: return "Missing Sec-WebSocket-Accept header"
 
 proc newWebSocket*(url: string, headers: StringTableRef = nil,
                    sslContext: SSLContext = getDefaultSslContext()): Future[WebSocket] {.async.} =
@@ -203,8 +204,8 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
     await ws.transp.connect(uri.hostname, port)
 
   var urlPath = uri.path
-  if uri.query.len > 0:
-    urlPath.add("?" & uri.query)
+  # if uri.query.len > 0:
+  #   urlPath.add("?" & uri.query)
 
   let secKey = encode($genOid())[16..^1]
   let requestLine = &"GET {urlPath} HTTP/1.1"
