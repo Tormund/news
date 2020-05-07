@@ -54,7 +54,7 @@ type
     readyState*: ReadyState
     maskFrames*: bool
 
-  WebSocketError* = object of Exception
+  WebSocketError* = object of CatchableError
   WebSocketClosedError* = object of WebSocketError
 
 template `[]`(value: uint8, index: int): bool =
@@ -379,7 +379,7 @@ proc send*(ws: WebSocket, text: string, opcode = Opcode.Text): Future[void] {.as
       await ws.transp.send(data)
       i += maxSize
       await sleepAsync(1)
-  except Exception as e:
+  except CatchableError as e:
     if ws.transp.isClosed:
       ws.readyState = Closed
       raise newException(WebSocketClosedError, "Socket closed")
@@ -500,7 +500,7 @@ proc receivePacket*(ws: WebSocket): Future[Packet] {.async.} =
 
   except WebSocketError as e:
     raise e
-  except Exception as e:
+  except CatchableError as e:
     if ws.transp.isClosed:
       ws.readyState = Closed
       result = Packet(kind: Close)
