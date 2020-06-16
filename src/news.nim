@@ -207,7 +207,8 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
   var urlPath = uri.path
   if uri.query.len > 0:
     urlPath.add("?" & uri.query)
-
+  if urlPath.len == 0:
+    urlPath = "/"
   let secKey = encode($genOid())[16..^1]
   let requestLine = &"GET {urlPath} HTTP/1.1"
   let predefinedHeaders = [
