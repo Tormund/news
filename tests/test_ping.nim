@@ -3,7 +3,7 @@ import news, asyncdispatch, asynchttpserver
 var continueTest = true
 
 proc establishConnectionAndListen() {.async.} =
-    var ws = await newWebSocket("ws://echo.websocket.org")
+    var ws = await newWebSocket("ws://echo.websocket.org:80/")
     await ws.sendPing()
     let pong = await ws.receivePacket()
     assert(pong.kind == Pong)
