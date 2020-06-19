@@ -126,7 +126,7 @@ when not newsUseChronos:
     var response = "HTTP/1.1 101 Web Socket Protocol Handshake" & CRLF
     response.add("Sec-WebSocket-Accept: " & acceptKey & CRLF)
     response.add("Connection: Upgrade" & CRLF)
-    response.add("Upgrade: webSocket" & CRLF)
+    response.add("Upgrade: websocket" & CRLF)
     if not ws.protocol.len == 0:
       response.add("Sec-WebSocket-Protocol: " & ws.protocol & CRLF)
     response.add CRLF
