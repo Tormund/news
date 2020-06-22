@@ -475,6 +475,14 @@ proc sendPing*(ws: WebSocket): Future[void] {.async.} =
 proc sendPong(ws: WebSocket): Future[void] {.async.} =
   await ws.send("", Opcode.Pong)
 
+proc sendClose(ws: WebSocket): Future[void] {.async.} =
+  await ws.send("", Opcode.Close)
+
+proc shutdown*(ws: WebSocket): Future[void] {.async.} =
+  ## close the socket
+  ws.readyState = Closing
+  await ws.sendClose
+
 proc receivePacket*(ws: WebSocket): Future[Packet] {.async.} =
   try:
     ## wait for a string packet to come
@@ -497,7 +505,11 @@ proc receivePacket*(ws: WebSocket): Future[Packet] {.async.} =
       return
 
     elif frame.opcode == Close:
-      ws.close()
+      if ws.readyState != Closing:
+        await ws.sendClose()
+      ws.readyState = Closed
+      if not ws.transp.isClosed:
+        ws.transp.close()
 
   except WebSocketError as e:
     raise e
