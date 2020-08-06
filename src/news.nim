@@ -388,11 +388,11 @@ proc send*(ws: WebSocket, text: string, opcode = Opcode.Text): Future[void] {.as
       raise newException(WebSocketError,
                          &"Could not send packet because of [{e.name}]: {e.msg}")
 
-proc send*(ws: WebSocket, packet: Packet): Future[void] {.async.} =
+proc send*(ws: WebSocket, packet: Packet): Future[void] =
   if packet.kind == Text or packet.kind == Binary:
-    result = ws.send(packet.data, packet.kind)
+    return ws.send(packet.data, packet.kind)
   else:
-    result = ws.send("", packet.kind)
+    return ws.send("", packet.kind)
 
 proc recvFrame(ws: WebSocket): Future[Frame] {.async.} =
   ## Gets a frame from the WebSocket
