@@ -149,19 +149,19 @@ proc validateServerResponse(resp, secKey: string): string =
   var validatedHeaders: array[3, bool]
   for i in 1 ..< respLines.len:
     let h = parseHeader(respLines[i])
-    if h.key == "Upgrade":
-      if h.value[0].toLowerAscii != "websocket":
+    if cmpIgnoreCase(h.key, "Upgrade") == 0:
+      if cmpIgnoreCase(h.value[0].toLowerAscii, "websocket") != 0:
         return "Upgrade header is invalid"
       validatedHeaders[0] = true
 
-    elif h.key == "Connection":
-      if h.value[0].toLowerAscii != "upgrade":
+    elif cmpIgnoreCase(h.key, "Connection") == 0:
+      if cmpIgnoreCase(h.value[0], "upgrade") != 0:
         return "Connection header is invalid"
       validatedHeaders[1] = true
 
-    elif h.key == "Sec-WebSocket-Accept":
+    elif cmpIgnoreCase(h.key, "Sec-WebSocket-Accept") == 0:
       let sh = decodeBase16($secureHash(secKey & GUID))
-      if h.value[0].toLowerAscii != base64.encode(sh).toLowerAscii:
+      if cmpIgnoreCase(h.value[0], base64.encode(sh)) != 0:
         return "Secret key invalid"
       validatedHeaders[2] = true
 
