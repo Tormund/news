@@ -9,6 +9,10 @@ when not declaredInScope(newsUseChronos):
   # include news
   const newsUseChronos = false
 
+type
+  WebSocketError* = object of CatchableError
+  WebSocketClosedError* = object of WebSocketError
+
 when newsUseChronos:
   import chronos, chronos/streams/[asyncstream, tlsstream]
 
@@ -18,12 +22,16 @@ when newsUseChronos:
 
   proc send(s: Transport, data: string) {.async.} =
     # echo "sending: ", data.len
+    if s.writer == nil:
+      raise newException(WebSocketClosedError, "WebSocket is closed")
     await s.writer.write(data)
 
   proc recv(s: Transport, len: int): Future[string] {.async.} =
     var res = newString(len)
     if len != 0:
       # echo "receiving: ", len
+      if s.reader == nil:
+        raise newException(WebSocketClosedError, "WebSocket is closed")
       await s.reader.readExactly(addr res[0], len)
     return res
 
@@ -31,11 +39,13 @@ when newsUseChronos:
     (transp.reader == nil and transp.writer == nil) or
     (transp.reader.closed or transp.writer.closed)
 
-  proc close(transp: Transport) =
+  proc close(transp: var Transport) =
     if transp.reader != nil:
       transp.reader.close()
+      transp.reader = nil
     if transp.writer != nil:
       transp.writer.close()
+      transp.writer = nil
 
 else:
   import httpcore, asyncdispatch, asyncnet, asynchttpserver
@@ -58,9 +68,6 @@ type
     protocol*: string
     readyState*: ReadyState
     maskFrames*: bool
-
-  WebSocketError* = object of CatchableError
-  WebSocketClosedError* = object of WebSocketError
 
 template `[]`(value: uint8, index: int): bool =
   ## get bits from uint8, uint8[2] gets 2nd bit
