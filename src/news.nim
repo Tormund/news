@@ -17,6 +17,7 @@ when newsUseChronos:
   import chronos, chronos/streams/[asyncstream, tlsstream]
 
   type Transport = object
+    transp: StreamTransport
     reader: AsyncStreamReader
     writer: AsyncStreamWriter
 
@@ -46,6 +47,19 @@ when newsUseChronos:
     if transp.writer != nil:
       transp.writer.close()
       transp.writer = nil
+    transp.transp.close()
+    transp.transp = nil
+
+  proc closeWait(transp: var Transport): Future[void] =
+    if transp.reader != nil:
+      transp.reader.close()
+      transp.reader = nil
+    if transp.writer != nil:
+      transp.writer.close()
+      transp.writer = nil
+    let t = transp.transp
+    transp.transp = nil
+    t.closeWait()
 
 else:
   import httpcore, asyncdispatch, asyncnet, asynchttpserver
@@ -128,6 +142,12 @@ proc close*(ws: WebSocket) =
   ws.readyState = Closed
   if not ws.transp.isClosed:
     ws.transp.close()
+
+proc closeWait*(ws: WebSocket) {.async.} =
+  ## close the socket
+  ws.readyState = Closed
+  if not ws.transp.isClosed:
+    await ws.transp.closeWait()
 
 when not newsUseChronos:
   proc newWebSocket*(req: Request): Future[WebSocket] {.async.} =
@@ -218,6 +238,7 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
 
     when newsUseChronos:
       let tr = await connect(resolveTAddress(uri.hostname, port)[0])
+      ws.transp.transp = tr
       ws.transp.reader = newAsyncStreamReader(tr)
       ws.transp.writer = newAsyncStreamWriter(tr)
 
