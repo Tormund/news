@@ -261,14 +261,16 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
       urlPath.add("?" & uri.query)
     if urlPath.len == 0:
       urlPath = "/"
-    let secKey = encode($genOid())[16..^1]
+    let
+      secKey = ($genOid())[^16..^1]
+      secKeyEncoded = encode(secKey)
     let requestLine = &"GET {urlPath} HTTP/1.1"
     let predefinedHeaders = [
       &"Host: {uri.hostname}:{$port}",
       "Connection: Upgrade",
       "Upgrade: websocket",
       "Sec-WebSocket-Version: 13",
-      &"Sec-WebSocket-Key: {secKey}"
+      &"Sec-WebSocket-Key: {secKeyEncoded}"
     ]
 
     var customHeaders = ""
@@ -286,7 +288,7 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
     while not output.endsWith(static(CRLF & CRLF)):
       output.add await ws.transp.recv(1)
 
-    let error = validateServerResponse(output, secKey)
+    let error = validateServerResponse(output, secKeyEncoded)
     if error.len > 0:
       raise newException(WebSocketError, "WebSocket connection error: " & error)
 
