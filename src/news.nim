@@ -243,7 +243,7 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
       ws.transp.writer = newAsyncStreamWriter(tr)
 
       if uri.scheme == "wss":
-        let s = newTlsClientAsyncStream(ws.transp.reader, ws.transp.writer, serverName = uri.hostname)
+        let s = newTLSClientAsyncStream(ws.transp.reader, ws.transp.writer, serverName = uri.hostname)
         ws.transp.reader = s.reader
         ws.transp.writer = s.writer
 
