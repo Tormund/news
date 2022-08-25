@@ -446,10 +446,8 @@ proc continueSending(ws: WebSocket) =
 
   let
     task = ws.sendQueue.popFirst()
-    text = task.text
-    opcode = task.opcode
     fut = task.fut
-    sendFut = ws.doSend(text, opcode)
+    sendFut = ws.doSend(task.text, task.opcode)
   ws.sendFut = sendFut
 
   proc doHandleSent() =
