@@ -1,6 +1,6 @@
 import std/[
   base64, deques, httpcore, nativesockets, net, oids, random, sha1, streams,
-  strformat, strutils, uri]
+  strformat, strtabs, strutils, uri]
 
 when not declaredInScope(newsUseChronos):
   # Currently chronos is second class citizen. To use this library in chronos-based
@@ -62,7 +62,7 @@ when newsUseChronos:
     t.closeWait()
 
 else:
-  import std/[asyncdispatch, asynchttpserver, asyncnet, strtabs]
+  import std/[asyncdispatch, asynchttpserver, asyncnet]
   type Transport = AsyncSocket
 
 const CRLF = "\c\l"
