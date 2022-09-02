@@ -1,6 +1,6 @@
-import
-  strutils, streams, random, base64, uri, strformat, nativesockets, oids,
-  strtabs, std/sha1, net, httpcore
+import std/[
+  base64, deques, httpcore, nativesockets, net, oids, random, sha1, streams,
+  strformat, strtabs, strutils, uri]
 
 when not declaredInScope(newsUseChronos):
   # Currently chronos is second class citizen. To use this library in chronos-based
@@ -62,13 +62,60 @@ when newsUseChronos:
     t.closeWait()
 
 else:
-  import httpcore, asyncdispatch, asyncnet, asynchttpserver
+  import std/[asyncdispatch, asynchttpserver, asyncnet]
   type Transport = AsyncSocket
 
 const CRLF = "\c\l"
 const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 type
+  Opcode* = enum
+    ## 4 bits. Defines the interpretation of the "Payload data".
+    Cont = 0x0 ## denotes a continuation frame
+    Text = 0x1 ## denotes a text frame
+    Binary = 0x2 ## denotes a binary frame
+    # 3-7 are reserved for further non-control frames
+    Close = 0x8 ## denotes a connection close
+    Ping = 0x9 ## denotes a ping
+    Pong = 0xa ## denotes a pong
+    # B-F are reserved for further control frames
+
+  #[
+   0                   1                   2                   3
+   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+  +-+-+-+-+-------+-+-------------+-------------------------------+
+  |F|R|R|R| opcode|M| Payload len |    Extended payload length    |
+  |I|S|S|S|  (4)  |A|     (7)     |             (16/64)           |
+  |N|V|V|V|       |S|             |   (if payload len==126/127)   |
+  | |1|2|3|       |K|             |                               |
+  +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
+  |     Extended payload length continued, if payload len == 127  |
+  + - - - - - - - - - - - - - - - +-------------------------------+
+  |                               |Masking-key, if MASK set to 1  |
+  +-------------------------------+-------------------------------+
+  | Masking-key (continued)       |          Payload Data         |
+  +-------------------------------- - - - - - - - - - - - - - - - +
+  :                     Payload Data continued ...                :
+  + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+  |                     Payload Data continued ...                |
+  +---------------------------------------------------------------+
+  ]#
+  Frame* = tuple
+    fin: bool ## Indicates that this is the final fragment in a message.
+    rsv1: bool ## MUST be 0 unless negotiated that defines meanings
+    rsv2: bool
+    rsv3: bool
+    opcode: Opcode ## Defines the interpretation of the "Payload data".
+    mask: bool ## Defines whether the "Payload data" is masked.
+    data: string ## Payload data
+
+  Packet* = object
+    case kind*: Opcode
+    of Text, Binary:
+      data*: string
+    else:
+      discard
+
   ReadyState* = enum
     Connecting = 0 # The connection is not yet open.
     Open = 1 # The connection is open and ready to communicate.
@@ -82,6 +129,8 @@ type
     protocol*: string
     readyState*: ReadyState
     maskFrames*: bool
+    sendFut: Future[void]
+    sendQueue: Deque[tuple[text: string, opcode: Opcode, fut: Future[void]]]
 
 template `[]`(value: uint8, index: int): bool =
   ## get bits from uint8, uint8[2] gets 2nd bit
@@ -143,13 +192,14 @@ proc close*(ws: WebSocket) =
   if not ws.transp.isClosed:
     ws.transp.close()
 
-proc closeWait*(ws: WebSocket) {.async.} =
-  ## close the socket
-  ws.readyState = Closed
-  if not ws.transp.isClosed:
-    await ws.transp.closeWait()
+when newsUseChronos:
+  proc closeWait*(ws: WebSocket) {.async.} =
+    ## close the socket
+    ws.readyState = Closed
+    if not ws.transp.isClosed:
+      await ws.transp.closeWait()
 
-when not newsUseChronos:
+else:
   proc newWebSocket*(req: Request): Future[WebSocket] {.async.} =
     ## Creates a new socket from a request
     var ws = WebSocket()
@@ -300,54 +350,6 @@ proc newWebSocket*(url: string, headers: StringTableRef = nil,
 
   return ws
 
-type
-  Opcode* = enum
-    ## 4 bits. Defines the interpretation of the "Payload data".
-    Cont = 0x0 ## denotes a continuation frame
-    Text = 0x1 ## denotes a text frame
-    Binary = 0x2 ## denotes a binary frame
-    # 3-7 are reserved for further non-control frames
-    Close = 0x8 ## denotes a connection close
-    Ping = 0x9 ## denotes a ping
-    Pong = 0xa ## denotes a pong
-    # B-F are reserved for further control frames
-
-  #[
-   0                   1                   2                   3
-   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-  +-+-+-+-+-------+-+-------------+-------------------------------+
-  |F|R|R|R| opcode|M| Payload len |    Extended payload length    |
-  |I|S|S|S|  (4)  |A|     (7)     |             (16/64)           |
-  |N|V|V|V|       |S|             |   (if payload len==126/127)   |
-  | |1|2|3|       |K|             |                               |
-  +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
-  |     Extended payload length continued, if payload len == 127  |
-  + - - - - - - - - - - - - - - - +-------------------------------+
-  |                               |Masking-key, if MASK set to 1  |
-  +-------------------------------+-------------------------------+
-  | Masking-key (continued)       |          Payload Data         |
-  +-------------------------------- - - - - - - - - - - - - - - - +
-  :                     Payload Data continued ...                :
-  + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
-  |                     Payload Data continued ...                |
-  +---------------------------------------------------------------+
-  ]#
-  Frame* = tuple
-    fin: bool ## Indicates that this is the final fragment in a message.
-    rsv1: bool ## MUST be 0 unless negotiated that defines meanings
-    rsv2: bool
-    rsv3: bool
-    opcode: Opcode ## Defines the interpretation of the "Payload data".
-    mask: bool ## Defines whether the "Payload data" is masked.
-    data: string ## Payload data
-
-  Packet* = object
-    case kind*: Opcode
-    of Text, Binary:
-      data*: string
-    else:
-      discard
-
 proc encodeFrame*(f: Frame): string =
   ## Encodes a frame into a string buffer
   ## See https://tools.ietf.org/html/rfc6455#section-5.2
@@ -407,8 +409,7 @@ proc encodeFrame*(f: Frame): string =
   ret.setPosition(0)
   return ret.readAll()
 
-
-proc send*(ws: WebSocket, text: string, opcode = Opcode.Text): Future[void] {.async.} =
+proc doSend(ws: WebSocket, text: string, opcode: Opcode): Future[void] {.async.} =
   try:
     ## write data to WebSocket
     var frame = encodeFrame((
@@ -438,6 +439,55 @@ proc send*(ws: WebSocket, text: string, opcode = Opcode.Text): Future[void] {.as
     else:
       raise newException(WebSocketError,
                          &"Could not send packet because of [{e.name}]: {e.msg}")
+
+proc continueSending(ws: WebSocket) =
+  if ws.sendQueue.len <= 0:
+    return
+
+  let
+    task = ws.sendQueue.popFirst()
+    fut = task.fut
+    sendFut = ws.doSend(task.text, task.opcode)
+  ws.sendFut = sendFut
+
+  proc doHandleSent() =
+    if ws.sendFut.failed:
+      fut.fail(ws.sendFut.error)
+    else:
+      fut.complete()
+    ws.sendFut = nil
+    ws.continueSending()
+
+  when newsUseChronos:
+    proc handleSent(future: pointer) =
+      doHandleSent()
+  else:
+    proc handleSent() =
+      doHandleSent()
+
+  ws.sendFut.addCallback(handleSent)
+
+proc send*(ws: WebSocket, text: string, opcode = Opcode.Text): Future[void] =
+  if ws.sendFut != nil:
+    let fut = newFuture[void]("send")
+    ws.sendQueue.addLast (text: text, opcode: opcode, fut: fut)
+    return fut
+
+  ws.sendFut = ws.doSend(text, opcode)
+
+  proc doHandleSent() =
+    ws.sendFut = nil
+    ws.continueSending()
+
+  when newsUseChronos:
+    proc handleSent(future: pointer) =
+      doHandleSent()
+  else:
+    proc handleSent() =
+      doHandleSent()
+
+  ws.sendFut.addCallback(handleSent)
+  ws.sendFut
 
 proc send*(ws: WebSocket, packet: Packet): Future[void] =
   if packet.kind == Text or packet.kind == Binary:
