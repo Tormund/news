@@ -440,7 +440,7 @@ proc doSend(ws: WebSocket, text: string, opcode: Opcode): Future[void] {.async.}
       raise newException(WebSocketError,
                          &"Could not send packet because of [{e.name}]: {e.msg}")
 
-proc continueSending(ws: WebSocket) =
+proc continueSending(ws: WebSocket) {.gcsafe.} =
   if ws.sendQueue.len <= 0:
     return
 
